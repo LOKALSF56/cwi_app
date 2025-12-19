@@ -1,5 +1,7 @@
 import 'package:cwi_app/activity/login.dart';
+import 'package:cwi_app/activity/MainPage.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -10,14 +12,36 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   @override
+  /*************  ✨ Windsurf Command ⭐  *************/
+  /// Called when this object is inserted into the tree.
+  ///
+  /// This function is responsible for checking if the user is already logged in
+  /// and navigating to the main page if so.
+  /*******  9e70dcf7-a19f-4baa-825b-7896cfcef36a  *******/
   void initState() {
     super.initState();
 
-    // Delay 2 detik kemudian pindah ke MainPage
+    // Check if logged in
+    _checkLogin();
+  }
+
+  Future<void> _checkLogin() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+    int? userId = prefs.getInt('userId');
+
+    Widget nextPage;
+    if (token != null && userId != null) {
+      nextPage = MainPage(userId: userId.toString());
+    } else {
+      nextPage = const Loginpage();
+    }
+
+    // Delay 2 detik kemudian pindah
     Future.delayed(const Duration(seconds: 2), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const Loginpage()),
+        MaterialPageRoute(builder: (context) => nextPage),
       );
     });
   }

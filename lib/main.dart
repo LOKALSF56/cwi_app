@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'activity/data_penjualan.dart';
+import 'activity/splash_screen.dart';
+import 'services/appwrite_client.dart';
 
 void main() {
   runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  AppwriteService.client;
 }
 
 class MyApp extends StatelessWidget {
@@ -10,6 +13,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(home: DataPenjualanPage());
+    return MaterialApp(home: SplashScreen());
   }
 }

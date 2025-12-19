@@ -6,6 +6,9 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cwi_app/widgets/btn_widget.dart';
+import 'package:cwi_app/widgets/barang_terjual_widget.dart';
 
 class DataPenjualanPage extends StatefulWidget {
   const DataPenjualanPage({super.key});
@@ -21,7 +24,16 @@ class _DataPenjualanPageState extends State<DataPenjualanPage> {
   List<Map<String, dynamic>> trafikMingguan = [];
   List<Map<String, dynamic>> listProdukTerjual = [];
 
-  final String baseUrl = "http://192.168.1.10:3000";
+  final String baseUrl = "http://localhost:3000/api";
+
+  Future<Map<String, String>> _getHeaders() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
 
   @override
   void initState() {
@@ -31,8 +43,9 @@ class _DataPenjualanPageState extends State<DataPenjualanPage> {
 
   Future<void> loadData() async {
     String dateStr = DateFormat('yyyy-MM-dd').format(selectedDate);
-    var url = Uri.parse("$baseUrl/api/penjualan?date=$dateStr");
-    var res = await http.get(url);
+    var headers = await _getHeaders();
+    var url = Uri.parse("$baseUrl/penjualan?date=$dateStr");
+    var res = await http.get(url, headers: headers);
     var data = jsonDecode(res.body);
 
     setState(() {
@@ -123,10 +136,6 @@ class _DataPenjualanPageState extends State<DataPenjualanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xffb3e5d6),
-      appBar: AppBar(
-        title: Text('Data Penjualan'),
-        backgroundColor: Color(0xffb3e5d6),
-      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: EdgeInsets.all(16),
@@ -248,37 +257,41 @@ class _DataPenjualanPageState extends State<DataPenjualanPage> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 10),
-              ...listProdukTerjual.map(
-                (item) => Container(
-                  margin: EdgeInsets.only(bottom: 8),
-                  padding: EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(item['nama'], style: TextStyle(fontSize: 16)),
-                      Text(
-                        item['jumlah'].toString(),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(12),
+                itemCount: 6,
+                itemBuilder: (context, index) {
+                  return const BarangTerjualWidget();
+                },
               ),
 
               SizedBox(height: 20),
 
               // DOWNLOAD PDF BUTTON
-              Center(
-                child: ElevatedButton(
-                  onPressed: _downloadPDF,
-                  child: Text('Download PDF'),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Center(
+                      // Added Center to horizontally center the button
+                      child: BtnWidget(
+                        onTap: _downloadPDF,
+                        width: 350,
+                        height: 40,
+                        text: "Download PDF",
+                        bgcolor: Colors.blue,
+                        textstyle: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        isUpercase: true,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                 ),
               ),
             ],

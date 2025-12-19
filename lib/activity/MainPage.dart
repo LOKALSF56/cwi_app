@@ -1,76 +1,172 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'data_penjualan.dart';
+import 'login.dart';
+import 'package:appwrite/appwrite.dart';
+import '../services/appwrite_client.dart';
 
 class MainPage extends StatefulWidget {
-  final int userId;
-  const MainPage({required this.userId, super.key});
+  final String userId;
+  const MainPage({super.key, required this.userId});
 
   @override
   State<MainPage> createState() => _MainPageState();
 }
 
 class _MainPageState extends State<MainPage> {
-  String name = "";
-  String role = "";
+  String name = "Loading...";
+  String role = "User";
   int barangMasuk = 0;
   int barangKeluar = 0;
-
+  List<DateTime> weekDates = [];
+  static const String databaseId = '6944300100059c12c035';
+  static const String transaksiCollection = 'transaksi';
+  static const String produkCollection = 'produk';
   List<double> chartMasuk = List.filled(7, 0);
   List<double> chartKeluar = List.filled(7, 0);
-
-  final String baseUrl = "http://192.168.1.10:3000";
 
   @override
   void initState() {
     super.initState();
+    _initWeekDates();
     loadUser();
     loadTodayData();
     loadWeeklyChart();
   }
 
+  String getDayName(DateTime date) {
+    const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    return days[date.weekday % 7];
+  }
+
+  String getDateLabel(DateTime date) {
+    return '${date.day}/${date.month}';
+  }
+
   // GET USER
   Future<void> loadUser() async {
-    var url = Uri.parse("$baseUrl/user/${widget.userId}");
-    var res = await http.get(url);
-    var data = jsonDecode(res.body);
+    try {
+      final user = await AppwriteService.account.get();
 
-    setState(() {
-      name = data["name"];
-      role = data["role"];
-    });
+      setState(() {
+        name = user.name.isNotEmpty ? user.name : user.email;
+
+        // 🔥 ROLE dari labels
+        if (user.labels.contains('admin')) {
+          role = 'admin';
+        } else if (user.labels.contains('staff_gudang')) {
+          role = 'staff_gudang';
+        } else {
+          role = 'user';
+        }
+      });
+    } on AppwriteException catch (e) {
+      debugPrint("Load user error: ${e.message}");
+    }
+  }
+
+  Future<void> _logout() async {
+    try {
+      await AppwriteService.account.deleteSession(sessionId: 'current');
+    } catch (_) {}
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const Loginpage()),
+      );
+    }
+  }
+
+  void _initWeekDates() {
+    final now = DateTime.now();
+    weekDates = List.generate(
+      7,
+      (i) => DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: 6 - i)),
+    );
   }
 
   // GET TODAY BARANG MASUK & KELUAR
   Future<void> loadTodayData() async {
-    var masuk = await http.get(Uri.parse("$baseUrl/barang-masuk-today"));
-    var keluar = await http.get(Uri.parse("$baseUrl/barang-keluar-today"));
+    try {
+      final now = DateTime.now();
+      final startToday = DateTime(now.year, now.month, now.day);
+      final endToday = startToday.add(const Duration(days: 1));
 
-    setState(() {
-      barangMasuk = jsonDecode(masuk.body)["total"];
-      barangKeluar = jsonDecode(keluar.body)["total"];
-    });
+      final res = await AppwriteService.databases.listDocuments(
+        databaseId: databaseId,
+        collectionId: transaksiCollection,
+        queries: [
+          Query.greaterThanEqual('tanggal', startToday.toIso8601String()),
+          Query.lessThan('tanggal', endToday.toIso8601String()),
+        ],
+      );
+
+      int masuk = 0;
+      int keluar = 0;
+
+      for (var doc in res.documents) {
+        if (doc.data['jenis_transaksi'] == 'masuk') {
+          masuk += (doc.data['jumlah'] ?? 0) as int;
+        } else if (doc.data['jenis_transaksi'] == 'keluar') {
+          keluar += (doc.data['jumlah'] ?? 0) as int;
+        }
+      }
+
+      setState(() {
+        barangMasuk = masuk;
+        barangKeluar = keluar;
+      });
+    } on AppwriteException catch (e) {
+      debugPrint('loadTodayData error: ${e.message}');
+    }
   }
 
   // GET CHART WEEKLY
   Future<void> loadWeeklyChart() async {
-    var res = await http.get(Uri.parse("$baseUrl/chart-weekly"));
-    List data = jsonDecode(res.body);
+    try {
+      final now = DateTime.now();
+      final startWeek = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(const Duration(days: 6));
 
-    List<double> masuk = List.filled(7, 0);
-    List<double> keluar = List.filled(7, 0);
+      final res = await AppwriteService.databases.listDocuments(
+        databaseId: databaseId,
+        collectionId: transaksiCollection,
+        queries: [
+          Query.greaterThanEqual('tanggal', startWeek.toIso8601String()),
+        ],
+      );
 
-    for (int i = 0; i < data.length; i++) {
-      masuk[i] = data[i]["masuk"] * 1.0;
-      keluar[i] = data[i]["keluar"] * 1.0;
+      List<double> masuk = List.filled(7, 0);
+      List<double> keluar = List.filled(7, 0);
+
+      for (var doc in res.documents) {
+        final tanggal = DateTime.parse(doc.data['tanggal']);
+        final index = tanggal.difference(startWeek).inDays;
+
+        if (index >= 0 && index < 7) {
+          if (doc.data['jenis_transaksi'] == 'masuk') {
+            masuk[index] += (doc.data['jumlah'] ?? 0).toDouble();
+          } else if (doc.data['jenis_transaksi'] == 'keluar') {
+            keluar[index] += (doc.data['jumlah'] ?? 0).toDouble();
+          }
+        }
+      }
+
+      setState(() {
+        chartMasuk = masuk;
+        chartKeluar = keluar;
+      });
+    } on AppwriteException catch (e) {
+      debugPrint('loadWeeklyChart error: ${e.message}');
     }
-
-    setState(() {
-      chartMasuk = masuk;
-      chartKeluar = keluar;
-    });
   }
 
   // UI
@@ -112,6 +208,11 @@ class _MainPageState extends State<MainPage> {
                         Icon(Icons.circle, color: Colors.green, size: 12),
                         SizedBox(width: 5),
                         Text(role),
+                        SizedBox(width: 10),
+                        IconButton(
+                          icon: Icon(Icons.logout),
+                          onPressed: _logout,
+                        ),
                       ],
                     ),
                   ],
@@ -141,10 +242,83 @@ class _MainPageState extends State<MainPage> {
                 ),
                 child: LineChart(
                   LineChartData(
+                    minX: 0,
+                    maxX: 6,
+                    titlesData: FlTitlesData(
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: true),
+                      ),
+                      rightTitles: AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+
+                      // 🔵 HARI (BAWAH)
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            if (value % 1 != 0) return const SizedBox.shrink();
+
+                            final index = value.toInt();
+                            if (index < 0 || index >= weekDates.length) {
+                              return const SizedBox.shrink();
+                            }
+
+                            final date = weekDates[index];
+                            final hari = [
+                              'Min',
+                              'Sen',
+                              'Sel',
+                              'Rab',
+                              'Kam',
+                              'Jum',
+                              'Sab',
+                            ][date.weekday % 7];
+
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                hari,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      // 🔴 TANGGAL (ATAS)
+                      topTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            if (value % 1 != 0) return const SizedBox.shrink();
+
+                            final index = value.toInt();
+                            if (index < 0 || index >= weekDates.length) {
+                              return const SizedBox.shrink();
+                            }
+
+                            final date = weekDates[index];
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                '${date.day}/${date.month}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+
                     lineBarsData: [
                       LineChartBarData(
                         isCurved: true,
                         color: Colors.blue,
+                        barWidth: 3,
                         spots: List.generate(
                           7,
                           (i) => FlSpot(i.toDouble(), chartMasuk[i]),
@@ -153,6 +327,7 @@ class _MainPageState extends State<MainPage> {
                       LineChartBarData(
                         isCurved: true,
                         color: Colors.green,
+                        barWidth: 3,
                         spots: List.generate(
                           7,
                           (i) => FlSpot(i.toDouble(), chartKeluar[i]),

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'MainPage.dart';
+import 'package:appwrite/appwrite.dart';
+import '../services/appwrite_client.dart';
 
 class Loginpage extends StatefulWidget {
   const Loginpage({super.key});
@@ -14,6 +16,7 @@ class _LoginpageState extends State<Loginpage> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
+  bool _obscurePassword = true;
 
   Future<void> _login() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
@@ -29,32 +32,32 @@ class _LoginpageState extends State<Loginpage> {
     });
 
     try {
-      final response = await http.post(
-        Uri.parse('http://localhost:3000/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text,
-          'password': _passwordController.text,
-        }),
+      // 🔐 Login Appwrite
+      await AppwriteService.account.createEmailPasswordSession(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
       );
+      // 👤 Ambil data user login
+      final user = await AppwriteService.account.get();
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        // Login berhasil - navigasi ke halaman berikutnya
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Login berhasil: ${data['message']}')),
-          );
-        }
-      } else {
-        final error = jsonDecode(response.body);
-        setState(() {
-          _errorMessage = error['message'] ?? 'Login gagal';
-        });
+      // (opsional) simpan userId Appwrite
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userId', user.$id);
+      await prefs.setString('email', user.email);
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => MainPage(userId: user.$id)),
+        );
       }
+    } on AppwriteException catch (e) {
+      setState(() {
+        _errorMessage = e.message ?? 'Login gagal';
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Error: ${e.toString()}';
+        _errorMessage = 'Terjadi kesalahan: $e';
       });
     } finally {
       setState(() {
@@ -146,10 +149,22 @@ class _LoginpageState extends State<Loginpage> {
                 ),
                 child: TextField(
                   controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
                     border: InputBorder.none,
                     hintText: "Masukkan Password",
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    ),
                   ),
                 ),
               ),
